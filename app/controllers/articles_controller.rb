@@ -1,18 +1,26 @@
 class ArticlesController < ApplicationController
   before_action :set_article, only: %i[ show update destroy ]
   before_action :authenticate_user!, only: [:create, :update]
-  before_action :authorize_user!, only: [:destroy, :edit]
+  before_action :authorize_user!, only: [:update, :destroy, :edit]
 
   # GET /articles
   def index
-    @articles = Article.all
+    if current_user
+      @articles = Article.where('user_id = ? OR private = ?', current_user.id, false)
+    else
+      @articles = Article.where(private: false)
+    end
 
     render json: @articles
   end
 
   # GET /articles/1
   def show
-    render json: @article
+    if @article.private && @article.user != current_user
+      render json: { error: "Vous n'avez pas accès à cet article." }, status: :forbidden
+    else
+      render json: @article
+    end
   end
 
   # POST /articles
@@ -28,16 +36,21 @@ class ArticlesController < ApplicationController
 
   # PATCH/PUT /articles/1
   def update
-    if @article.update(article_params)
+    if @article.user == current_user && @article.update(article_params)
       render json: @article
     else
-      render json: @article.errors, status: :unprocessable_entity
+      render json: { error: "Vous n'avez pas la permission de modifier cet article." }, status: :forbidden
     end
   end
 
   # DELETE /articles/1
   def destroy
-    @article.destroy
+    if @article.user == current_user
+      @article.destroy
+      render json: { message: "L'article a été supprimé avec succès." }
+    else
+      render json: { error: "Vous n'avez pas la permission de supprimer cet article." }, status: :forbidden
+    end
   end
 
   def make_private
@@ -59,20 +72,17 @@ class ArticlesController < ApplicationController
   end
 
   private
-    # Use callbacks to share common setup or constraints between actions.
     def set_article
       @article = Article.find(params[:id])
     end
 
-    # Only allow a list of trusted parameters through.
     def article_params
-      params.require(:article).permit(:title, :content)
+      params.require(:article).permit(:title, :content, :private)
     end
     
     def authorize_user!
       unless @article.user == current_user
-        flash[:alert] = "Vous n'avez pas la permission d'accéder à cette page."
-        redirect_to root_path
+        render json: { error: "Vous n'avez pas la permission d'effectuer cette action." }, status: :forbidden
       end
     end
 end
